@@ -3,8 +3,10 @@ name = "rpn"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-lazy_static = "1.4.0"
-regex = "1.5.6"
+[profile.release]
+strip = true
+#debug = true
+lto = true
+opt-level = 3
+codegen-units = 1
+panic = "abort"

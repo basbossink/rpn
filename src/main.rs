@@ -1,15 +1,10 @@
-use lazy_static::lazy_static;
-use regex::Regex;
 use std::{
     cmp::min,
     fmt::{Display, Write},
     str::FromStr,
 };
 
-lazy_static! {
-    static ref INT_REGEX: Regex = Regex::new(r"^-?[1-9]\d*$").unwrap();
-    static ref BIN_OPS: Vec<&'static str> = vec!["+", "-", "x", "xx", "/"];
-}
+const DEFAULT_PRECISION: usize = 6;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Num {
@@ -32,32 +27,44 @@ impl FromStr for Num {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if INT_REGEX.is_match(s) {
-            s.parse::<i64>().map_or_else(
-                |err| Err(format!("could not parse integer number '{s}'; {err}")),
-                |i| Ok(Num::Integer(i)),
-            )
-        } else {
+        s.parse::<i64>().map_or_else(
+                |err_1| {
             let prec = s
                 .chars()
                 .take_while(|c| *c != 'e' || *c != 'E')
                 .filter(|c| char::is_digit(*c, 10))
                 .count();
             s.parse::<f64>().map_or_else(
-                |err| {
+                |err_2| {
                     Err(format!(
-                        "could not parse floating point number '{s}'; {err}"
+                        "could not parse as floating point or integer number '{s}'; {err_1}; {err_2}"
                     ))
                 },
                 |f| Ok(Num::Float(f, prec)),
             )
-        }
+                },
+                |i| Ok(Num::Integer(i)),
+            )
     }
 }
 
 enum Item {
     Operand(Num),
-    Operator(BinOp),
+    Operator(Oper),
+}
+
+enum Oper {
+    Bin(BinOp),
+    Unary(UnOp),
+}
+
+impl Display for Oper {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Bin(b) => b.fmt(f),
+            Self::Unary(u) => u.fmt(f),
+        }
+    }
 }
 
 impl FromStr for Item {
@@ -65,12 +72,13 @@ impl FromStr for Item {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         s.parse::<Num>().map_or_else(
-            |err_1| s.parse::<BinOp>().map_or_else(
+            |err_1| s.parse::<Oper>().map_or_else(
             |err_2| Err(format!("could not parse '{s}' as either a number or operator; {err_1}; {err_2}")),
             |o| Ok(Item::Operator(o))),
             |n| Ok(Item::Operand(n)))
     }
 }
+
 struct BinOp {
     oper: Box<dyn BinaryOperator>,
 }
@@ -81,26 +89,42 @@ impl Display for BinOp {
     }
 }
 
-impl FromStr for BinOp {
+struct UnOp {
+    oper: Box<dyn UnaryOperator>,
+}
+
+impl Display for UnOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.oper)
+    }
+}
+
+impl FromStr for Oper {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "+" => Ok(BinOp {
+            "+" => Ok(Oper::Bin(BinOp {
                 oper: Box::new(Add),
-            }),
-            "-" => Ok(BinOp {
+            })),
+            "-" => Ok(Oper::Bin(BinOp {
                 oper: Box::new(Sub),
-            }),
-            "x" => Ok(BinOp {
+            })),
+            "x" => Ok(Oper::Bin(BinOp {
                 oper: Box::new(Mult),
-            }),
-            "xx" => Ok(BinOp {
+            })),
+            "xx" => Ok(Oper::Bin(BinOp {
                 oper: Box::new(Pow),
-            }),
-            "/" => Ok(BinOp {
+            })),
+            "/" => Ok(Oper::Bin(BinOp {
                 oper: Box::new(Div),
-            }),
+            })),
+            "s" => Ok(Oper::Unary(UnOp {
+                oper: Box::new(Square),
+            })),
+            "r" => Ok(Oper::Unary(UnOp {
+                oper: Box::new(Sqrt),
+            })),
             bad => Err(format!("not a valid operator '{bad}'")),
         }
     }
@@ -142,12 +166,16 @@ struct Mult;
 struct Div;
 struct Sub;
 struct Pow;
+struct Square;
+struct Sqrt;
 
 impl_display!(Add, "+");
 impl_display!(Sub, "-");
 impl_display!(Mult, "x");
 impl_display!(Div, "/");
 impl_display!(Pow, "xx");
+impl_display!(Sqrt, "r");
+impl_display!(Square, "s");
 
 impl_bin_op!(Add, std::ops::Add::add);
 impl_bin_op!(Sub, std::ops::Sub::sub);
@@ -167,23 +195,52 @@ impl BinaryOperator for Pow {
     }
 }
 
+impl UnaryOperator for Square {
+    fn apply(&self, num: Num) -> Num {
+        match num {
+            Num::Integer(i) => Num::Integer(i * i),
+            Num::Float(f, prec) => Num::Float(f * f, prec),
+        }
+    }
+}
+
+impl UnaryOperator for Sqrt {
+    fn apply(&self, num: Num) -> Num {
+        match num {
+            Num::Integer(i) => Num::Float((i as f64).sqrt(), DEFAULT_PRECISION),
+            Num::Float(f, prec) => Num::Float(f * f, prec),
+        }
+    }
+}
+
 trait BinaryOperator: Display {
     fn apply(&self, lhs: Num, rhs: Num) -> Num;
+}
+
+trait UnaryOperator: Display {
+    fn apply(&self, num: Num) -> Num;
 }
 
 fn process_input(input: Vec<Item>) -> Result<Num, &'static str> {
     let mut stack: Vec<Num> = Vec::new();
     for item in input.iter() {
         match item {
-            Item::Operator(bin_op) => match stack.pop() {
+            Item::Operator(Oper::Bin(BinOp { oper: bin_op })) => match stack.pop() {
                 Some(rhs) => match stack.pop() {
                     Some(lhs) => {
-                        stack.push(bin_op.oper.apply(lhs, rhs));
+                        stack.push(bin_op.apply(lhs, rhs));
                         Ok(())
                     }
                     _ => Err("expecting one more operand on the stack"),
                 },
                 _ => Err("expecting two more operands on the stack"),
+            },
+            Item::Operator(Oper::Unary(UnOp { oper: un_op })) => match stack.pop() {
+                Some(num) => {
+                    stack.push(un_op.apply(num));
+                    Ok(())
+                }
+                _ => Err("expecting one more operand on the stack"),
             },
             Item::Operand(num) => {
                 stack.push(*num);
@@ -191,18 +248,12 @@ fn process_input(input: Vec<Item>) -> Result<Num, &'static str> {
             }
         }?;
     }
-    stack.pop().ok_or("stack empty at bend of input")
+    stack.pop().ok_or("stack empty at end of input")
 }
 
-fn main() -> Result<(), String> {
-    let (numbers, errors): (Vec<_>, Vec<_>) = std::env::args()
+fn process_arguments(args: Vec<String>) -> Result<Num, String> {
+    let (numbers, errors): (Vec<_>, Vec<_>) = args
         .into_iter()
-        .skip(1)
-        .flat_map(move |s| {
-            s.split_whitespace()
-                .map(|t| t.to_string())
-                .collect::<Vec<String>>()
-        })
         .map(|s| s.parse::<Item>())
         .partition(Result::is_ok);
     if !errors.is_empty() {
@@ -213,9 +264,27 @@ fn main() -> Result<(), String> {
         Err(joined)
     } else {
         let good_ones = numbers.into_iter().map(|i| i.ok().unwrap()).collect();
-        let result = process_input(good_ones)?;
-        println!("{result}");
-        Ok(())
+        process_input(good_ones).map_err(String::from)
+    }
+}
+
+fn main() -> Result<(), String> {
+    let splitted = std::env::args()
+        .into_iter()
+        .skip(1)
+        .flat_map(move |s| {
+            s.split_whitespace()
+                .map(|t| t.to_string())
+                .collect::<Vec<String>>()
+        })
+        .collect();
+    let result = process_arguments(splitted);
+    match result {
+        Ok(num) => {
+            println!("{num}");
+            Ok(())
+        }
+        Err(err) => Err(err),
     }
 }
 
@@ -228,12 +297,36 @@ mod tests {
         let input = vec![
             Item::Operand(Num::Integer(1)),
             Item::Operand(Num::Integer(2)),
-            Item::Operator(BinOp {
+            Item::Operator(Oper::Bin(BinOp {
                 oper: Box::new(Add),
-            }),
+            })),
         ];
         let result = process_input(input).unwrap();
         assert_eq!(Num::Integer(3), result)
+    }
+
+    #[test]
+    fn should_support_integer_squaring() {
+        let input = vec![
+            Item::Operand(Num::Integer(2)),
+            Item::Operator(Oper::Unary(UnOp {
+                oper: Box::new(Square),
+            })),
+        ];
+        let result = process_input(input).unwrap();
+        assert_eq!(Num::Integer(4), result)
+    }
+
+    #[test]
+    fn should_support_square_root() {
+        let input = vec![
+            Item::Operand(Num::Integer(4)),
+            Item::Operator(Oper::Unary(UnOp {
+                oper: Box::new(Sqrt),
+            })),
+        ];
+        let result = process_input(input).unwrap();
+        assert_eq!(Num::Float(2.0, DEFAULT_PRECISION), result)
     }
 
     #[test]
@@ -241,9 +334,9 @@ mod tests {
         let input = vec![
             Item::Operand(Num::Integer(2)),
             Item::Operand(Num::Integer(2)),
-            Item::Operator(BinOp {
+            Item::Operator(Oper::Bin(BinOp {
                 oper: Box::new(Pow),
-            }),
+            })),
         ];
         let result = process_input(input).unwrap();
         assert_eq!(Num::Integer(4), result)
@@ -254,9 +347,9 @@ mod tests {
         let input = vec![
             Item::Operand(Num::Float(1.0, 1)),
             Item::Operand(Num::Integer(2)),
-            Item::Operator(BinOp {
+            Item::Operator(Oper::Bin(BinOp {
                 oper: Box::new(Add),
-            }),
+            })),
         ];
         let result = process_input(input).unwrap();
         assert_eq!(Num::Float(3.0, 1), result)
@@ -267,9 +360,9 @@ mod tests {
         let input = vec![
             Item::Operand(Num::Integer(4)),
             Item::Operand(Num::Float(0.5, 1)),
-            Item::Operator(BinOp {
+            Item::Operator(Oper::Bin(BinOp {
                 oper: Box::new(Pow),
-            }),
+            })),
         ];
         let result = process_input(input).unwrap();
         assert_eq!(Num::Float(2.0, 1), result)
@@ -280,17 +373,17 @@ mod tests {
         let input = vec![
             Item::Operand(Num::Integer(1)),
             Item::Operand(Num::Integer(2)),
-            Item::Operator(BinOp {
+            Item::Operator(Oper::Bin(BinOp {
                 oper: Box::new(Add),
-            }),
+            })),
             Item::Operand(Num::Integer(1)),
             Item::Operand(Num::Integer(2)),
-            Item::Operator(BinOp {
+            Item::Operator(Oper::Bin(BinOp {
                 oper: Box::new(Add),
-            }),
-            Item::Operator(BinOp {
+            })),
+            Item::Operator(Oper::Bin(BinOp {
                 oper: Box::new(Add),
-            }),
+            })),
         ];
         let result = process_input(input).unwrap();
         assert_eq!(Num::Integer(6), result)
@@ -301,9 +394,9 @@ mod tests {
         let input = vec![
             Item::Operand(Num::Integer(2)),
             Item::Operand(Num::Integer(3)),
-            Item::Operator(BinOp {
+            Item::Operator(Oper::Bin(BinOp {
                 oper: Box::new(Mult),
-            }),
+            })),
         ];
         let result = process_input(input).unwrap();
         assert_eq!(Num::Integer(6), result)
@@ -314,9 +407,9 @@ mod tests {
         let input = vec![
             Item::Operand(Num::Integer(2)),
             Item::Operand(Num::Float(3.5, 1)),
-            Item::Operator(BinOp {
+            Item::Operator(Oper::Bin(BinOp {
                 oper: Box::new(Mult),
-            }),
+            })),
         ];
         let result = process_input(input).unwrap();
         assert_eq!(Num::Float(7.0, 1), result)
@@ -327,9 +420,9 @@ mod tests {
         let input = vec![
             Item::Operand(Num::Integer(5)),
             Item::Operand(Num::Integer(2)),
-            Item::Operator(BinOp {
+            Item::Operator(Oper::Bin(BinOp {
                 oper: Box::new(Div),
-            }),
+            })),
         ];
         let result = process_input(input).unwrap();
         assert_eq!(Num::Integer(2), result)
@@ -340,9 +433,9 @@ mod tests {
         let input = vec![
             Item::Operand(Num::Float(5.0, 1)),
             Item::Operand(Num::Integer(2)),
-            Item::Operator(BinOp {
+            Item::Operator(Oper::Bin(BinOp {
                 oper: Box::new(Div),
-            }),
+            })),
         ];
         let result = process_input(input).unwrap();
         assert_eq!(Num::Float(2.5, 1), result)
@@ -353,9 +446,9 @@ mod tests {
         let input = vec![
             Item::Operand(Num::Float(5.00, 2)),
             Item::Operand(Num::Float(2.0, 1)),
-            Item::Operator(BinOp {
+            Item::Operator(Oper::Bin(BinOp {
                 oper: Box::new(Div),
-            }),
+            })),
         ];
         let result = process_input(input).unwrap();
         assert_eq!(Num::Float(2.5, 1), result)
@@ -385,7 +478,18 @@ mod tests {
     #[test]
     fn should_parse_and_unparse_operator() {
         let expected = String::from("+");
-        let actual = format!("{}", "+".parse::<BinOp>().unwrap());
+        let actual = format!("{}", "+".parse::<Oper>().unwrap());
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn process_arguments_should_function() {
+        let input = vec!["3", "s", "4", "s", "+", "r"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let actual = process_arguments(input).unwrap();
+        let expected = Num::Float(5.0, DEFAULT_PRECISION);
         assert_eq!(expected, actual);
     }
 }
