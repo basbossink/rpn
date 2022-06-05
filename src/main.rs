@@ -1,9 +1,4 @@
-use std::{
-    cmp::min,
-    fmt::{Display, Write},
-    str::FromStr,
-    vec::Drain,
-};
+use std::{cmp::min, fmt::Display, str::FromStr, vec::Drain};
 
 const DEFAULT_PRECISION: usize = 6;
 
@@ -138,6 +133,9 @@ impl FromStr for Oper {
             "r" => Ok(Oper::Unary(UnOp {
                 oper: Box::new(Sqrt),
             })),
+            "!" => Ok(Oper::Unary(UnOp {
+                oper: Box::new(Factorial),
+            })),
             ".+" => Ok(Oper::Nary(NAryOp {
                 oper: Box::new(NAdd),
             })),
@@ -189,6 +187,7 @@ struct Square;
 struct Sqrt;
 struct NAdd;
 struct NMult;
+struct Factorial;
 
 impl_display!(Add, "+");
 impl_display!(Sub, "-");
@@ -199,6 +198,7 @@ impl_display!(Sqrt, "r");
 impl_display!(Square, "s");
 impl_display!(NAdd, ".+");
 impl_display!(NMult, ".x");
+impl_display!(Factorial, "!");
 
 impl_bin_op!(Add, std::ops::Add::add);
 impl_bin_op!(Sub, std::ops::Sub::sub);
@@ -234,6 +234,26 @@ impl UnaryOperator for Sqrt {
             Num::Float(f, prec) => Num::Float(f * f, prec),
         }
     }
+}
+
+impl UnaryOperator for Factorial {
+    fn apply(&self, num: Num) -> Num {
+        match num {
+            Num::Integer(i) if i >= 0 => Num::Integer(fact(i)),
+            Num::Integer(_) => Num::Float(f64::NAN, DEFAULT_PRECISION),
+            Num::Float(_, prec) => Num::Float(f64::NAN, prec),
+        }
+    }
+}
+
+fn fact(n: i64) -> i64 {
+    let mut result = 1;
+    let mut counter = 1;
+    while counter <= n {
+        result = result * counter;
+        counter = counter + 1;
+    }
+    result
 }
 
 trait BinaryOperator: Display {
@@ -305,10 +325,11 @@ fn process_arguments(args: Vec<String>) -> Result<Num, String> {
         .map(|s| s.parse::<Item>())
         .partition(Result::is_ok);
     if !errors.is_empty() {
-        let mut joined = String::new();
-        errors.into_iter().map(|e| e.err().unwrap()).for_each(|e| {
-            writeln!(joined, "{}", e).ok();
-        });
+        let joined = errors
+            .into_iter()
+            .map(|e| e.err().unwrap())
+            .collect::<Vec<String>>()
+            .join(";");
         Err(joined)
     } else {
         let good_ones = numbers.into_iter().map(|i| i.ok().unwrap()).collect();
@@ -530,36 +551,55 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
-    #[test]
-    fn process_arguments_should_apply_nary_plus() {
-        let input = vec!["1", "2", "3", ".+", "1", "+"]
-            .into_iter()
-            .map(String::from)
-            .collect();
-        let actual = process_arguments(input).unwrap();
-        let expected = Num::Integer(7);
-        assert_eq!(expected, actual);
+    mod process_arguments {
+        use super::*;
+
+        fn test_process_arguments(args: Vec<&str>, expected: Num) {
+            let input = args.into_iter().map(String::from).collect();
+            let actual = process_arguments(input).unwrap();
+            assert_eq!(expected, actual);
+        }
+
+        #[test]
+        fn should_apply_nary_plus() {
+            test_process_arguments(vec!["1", "2", "3", ".+", "1", "+"], Num::Integer(7));
+        }
+
+        #[test]
+        fn should_apply_nary_mult() {
+            test_process_arguments(vec!["1", "2.0", "3.5", ".x", "1", "+"], Num::Float(8.0, 2));
+        }
+
+        #[test]
+        fn should_support_square_and_sqrt() {
+            test_process_arguments(
+                vec!["3", "s", "4", "s", "+", "r"],
+                Num::Float(5.0, DEFAULT_PRECISION),
+            );
+        }
+
+        #[test]
+        fn should_support_factorial() {
+            test_process_arguments(vec!["3", "!", "4", "+"], Num::Integer(10));
+        }
     }
 
-    #[test]
-    fn process_arguments_should_apply_nary_mult() {
-        let input = vec!["1", "2.0", "3.5", ".x", "1", "+"]
-            .into_iter()
-            .map(String::from)
-            .collect();
-        let actual = process_arguments(input).unwrap();
-        let expected = Num::Float(8.0, 2);
-        assert_eq!(expected, actual);
-    }
+    mod fact_should_be_correct_for {
+        use super::*;
 
-    #[test]
-    fn process_arguments_should_function() {
-        let input = vec!["3", "s", "4", "s", "+", "r"]
-            .into_iter()
-            .map(String::from)
-            .collect();
-        let actual = process_arguments(input).unwrap();
-        let expected = Num::Float(5.0, DEFAULT_PRECISION);
-        assert_eq!(expected, actual);
+        macro_rules! fact_test_case {
+            ($name:ident, $input:literal, $expected:literal) => {
+                #[test]
+                fn $name() {
+                    assert_eq!($expected, fact($input));
+                }
+            };
+        }
+
+        fact_test_case!(one, 1, 1);
+        fact_test_case!(two, 2, 2);
+        fact_test_case!(three, 3, 6);
+        fact_test_case!(five, 5, 120);
+        fact_test_case!(ten, 10, 3628800);
     }
 }
