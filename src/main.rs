@@ -2,6 +2,7 @@ use std::{
     cmp::min,
     fmt::{Display, Write},
     str::FromStr,
+    vec::Drain,
 };
 
 const DEFAULT_PRECISION: usize = 6;
@@ -56,6 +57,7 @@ enum Item {
 enum Oper {
     Bin(BinOp),
     Unary(UnOp),
+    Nary(NAryOp),
 }
 
 impl Display for Oper {
@@ -63,6 +65,7 @@ impl Display for Oper {
         match self {
             Self::Bin(b) => b.fmt(f),
             Self::Unary(u) => u.fmt(f),
+            Self::Nary(n) => n.fmt(f),
         }
     }
 }
@@ -99,6 +102,16 @@ impl Display for UnOp {
     }
 }
 
+struct NAryOp {
+    oper: Box<dyn NAryOperator>,
+}
+
+impl Display for NAryOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.oper)
+    }
+}
+
 impl FromStr for Oper {
     type Err = String;
 
@@ -124,6 +137,12 @@ impl FromStr for Oper {
             })),
             "r" => Ok(Oper::Unary(UnOp {
                 oper: Box::new(Sqrt),
+            })),
+            ".+" => Ok(Oper::Nary(NAryOp {
+                oper: Box::new(NAdd),
+            })),
+            ".x" => Ok(Oper::Nary(NAryOp {
+                oper: Box::new(NMult),
             })),
             bad => Err(format!("not a valid operator '{bad}'")),
         }
@@ -168,6 +187,8 @@ struct Sub;
 struct Pow;
 struct Square;
 struct Sqrt;
+struct NAdd;
+struct NMult;
 
 impl_display!(Add, "+");
 impl_display!(Sub, "-");
@@ -176,6 +197,8 @@ impl_display!(Div, "/");
 impl_display!(Pow, "xx");
 impl_display!(Sqrt, "r");
 impl_display!(Square, "s");
+impl_display!(NAdd, ".+");
+impl_display!(NMult, ".x");
 
 impl_bin_op!(Add, std::ops::Add::add);
 impl_bin_op!(Sub, std::ops::Sub::sub);
@@ -221,6 +244,26 @@ trait UnaryOperator: Display {
     fn apply(&self, num: Num) -> Num;
 }
 
+trait NAryOperator: Display {
+    fn apply(&self, nums: Drain<Num>) -> Num;
+}
+
+impl NAryOperator for NAdd {
+    fn apply(&self, nums: Drain<Num>) -> Num {
+        let adder = Add;
+        nums.into_iter()
+            .fold(Num::Integer(0), |acc, num| adder.apply(acc, num))
+    }
+}
+
+impl NAryOperator for NMult {
+    fn apply(&self, nums: Drain<Num>) -> Num {
+        let multiplication = Mult;
+        nums.into_iter()
+            .fold(Num::Integer(1), |acc, num| multiplication.apply(acc, num))
+    }
+}
+
 fn process_input(input: Vec<Item>) -> Result<Num, &'static str> {
     let mut stack: Vec<Num> = Vec::new();
     for item in input.iter() {
@@ -242,6 +285,11 @@ fn process_input(input: Vec<Item>) -> Result<Num, &'static str> {
                 }
                 _ => Err("expecting one more operand on the stack"),
             },
+            Item::Operator(Oper::Nary(NAryOp { oper: nary_op })) => {
+                let result = nary_op.apply(stack.drain(..));
+                stack = vec![result];
+                Ok(())
+            }
             Item::Operand(num) => {
                 stack.push(*num);
                 Ok(())
@@ -479,6 +527,28 @@ mod tests {
     fn should_parse_and_unparse_operator() {
         let expected = String::from("+");
         let actual = format!("{}", "+".parse::<Oper>().unwrap());
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn process_arguments_should_apply_nary_plus() {
+        let input = vec!["1", "2", "3", ".+", "1", "+"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let actual = process_arguments(input).unwrap();
+        let expected = Num::Integer(7);
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn process_arguments_should_apply_nary_mult() {
+        let input = vec!["1", "2.0", "3.5", ".x", "1", "+"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let actual = process_arguments(input).unwrap();
+        let expected = Num::Float(8.0, 2);
         assert_eq!(expected, actual);
     }
 
