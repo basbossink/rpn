@@ -49,22 +49,6 @@ enum Item {
     Operator(Oper),
 }
 
-enum Oper {
-    Bin(BinOp),
-    Unary(UnOp),
-    Nary(NAryOp),
-}
-
-impl Display for Oper {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Bin(b) => b.fmt(f),
-            Self::Unary(u) => u.fmt(f),
-            Self::Nary(n) => n.fmt(f),
-        }
-    }
-}
-
 impl FromStr for Item {
     type Err = String;
 
@@ -77,33 +61,21 @@ impl FromStr for Item {
     }
 }
 
-struct BinOp {
-    oper: Box<dyn BinaryOperator>,
+enum Oper {
+    Bin(BinOp),
+    Unary(UnOp),
+    Nary(NAryOp),
+    Range(RangeOp),
 }
 
-impl Display for BinOp {
+impl Display for Oper {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.oper)
-    }
-}
-
-struct UnOp {
-    oper: Box<dyn UnaryOperator>,
-}
-
-impl Display for UnOp {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.oper)
-    }
-}
-
-struct NAryOp {
-    oper: Box<dyn NAryOperator>,
-}
-
-impl Display for NAryOp {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.oper)
+        match self {
+            Self::Bin(b) => b.fmt(f),
+            Self::Unary(u) => u.fmt(f),
+            Self::Nary(n) => n.fmt(f),
+            Self::Range(r) => r.fmt(f),
+        }
     }
 }
 
@@ -142,10 +114,63 @@ impl FromStr for Oper {
             ".x" => Ok(Oper::Nary(NAryOp {
                 oper: Box::new(NMult),
             })),
+            ".." => Ok(Oper::Range(RangeOp {
+                oper: Box::new(RangeEx),
+            })),
+            "..=" => Ok(Oper::Range(RangeOp {
+                oper: Box::new(RangeInc),
+            })),
             bad => Err(format!("not a valid operator '{bad}'")),
         }
     }
 }
+
+trait BinaryOperator: Display {
+    fn apply(&self, lhs: Num, rhs: Num) -> Num;
+}
+
+trait UnaryOperator: Display {
+    fn apply(&self, num: Num) -> Num;
+}
+
+trait NAryOperator: Display {
+    fn apply(&self, nums: Drain<Num>) -> Num;
+}
+
+trait RangeOperator: Display {
+    fn apply(&self, lhs: Num, rhs: Num) -> Vec<Num>;
+}
+
+macro_rules! impl_disp_oper {
+    ($target:ident, $member:ident) => {
+        impl Display for $target {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}", self.$member)
+            }
+        }
+    };
+}
+
+struct BinOp {
+    oper: Box<dyn BinaryOperator>,
+}
+impl_disp_oper!(BinOp, oper);
+
+struct NAryOp {
+    oper: Box<dyn NAryOperator>,
+}
+impl_disp_oper!(NAryOp, oper);
+
+struct RangeOp {
+    oper: Box<dyn RangeOperator>,
+}
+
+impl_disp_oper!(RangeOp, oper);
+
+struct UnOp {
+    oper: Box<dyn UnaryOperator>,
+}
+impl_disp_oper!(UnOp, oper);
 
 macro_rules! impl_bin_op {
     ($oper:ident, $native_op:path) => {
@@ -179,62 +204,15 @@ macro_rules! impl_display {
 }
 
 struct Add;
-struct Mult;
-struct Div;
-struct Sub;
-struct Pow;
-struct Square;
-struct Sqrt;
-struct NAdd;
-struct NMult;
-struct Factorial;
-
 impl_display!(Add, "+");
-impl_display!(Sub, "-");
-impl_display!(Mult, "x");
-impl_display!(Div, "/");
-impl_display!(Pow, "xx");
-impl_display!(Sqrt, "r");
-impl_display!(Square, "s");
-impl_display!(NAdd, ".+");
-impl_display!(NMult, ".x");
-impl_display!(Factorial, "!");
-
 impl_bin_op!(Add, std::ops::Add::add);
-impl_bin_op!(Sub, std::ops::Sub::sub);
-impl_bin_op!(Mult, std::ops::Mul::mul);
+
+struct Div;
+impl_display!(Div, "/");
 impl_bin_op!(Div, std::ops::Div::div);
 
-impl BinaryOperator for Pow {
-    fn apply(&self, lhs: Num, rhs: Num) -> Num {
-        match (lhs, rhs) {
-            (Num::Integer(l), Num::Integer(r)) => Num::Integer(l.pow(r as u32)),
-            (Num::Float(l, prec), Num::Integer(r)) => Num::Float(l.powf(r as f64), prec),
-            (Num::Integer(l), Num::Float(r, prec)) => Num::Float((l as f64).powf(r), prec),
-            (Num::Float(l, lprec), Num::Float(r, rprec)) => {
-                Num::Float(l.powf(r), min(lprec, rprec))
-            }
-        }
-    }
-}
-
-impl UnaryOperator for Square {
-    fn apply(&self, num: Num) -> Num {
-        match num {
-            Num::Integer(i) => Num::Integer(i * i),
-            Num::Float(f, prec) => Num::Float(f * f, prec),
-        }
-    }
-}
-
-impl UnaryOperator for Sqrt {
-    fn apply(&self, num: Num) -> Num {
-        match num {
-            Num::Integer(i) => Num::Float((i as f64).sqrt(), DEFAULT_PRECISION),
-            Num::Float(f, prec) => Num::Float(f * f, prec),
-        }
-    }
-}
+struct Factorial;
+impl_display!(Factorial, "!");
 
 impl UnaryOperator for Factorial {
     fn apply(&self, num: Num) -> Num {
@@ -256,17 +234,12 @@ fn fact(n: i64) -> i64 {
     result
 }
 
-trait BinaryOperator: Display {
-    fn apply(&self, lhs: Num, rhs: Num) -> Num;
-}
+struct Mult;
+impl_display!(Mult, "x");
+impl_bin_op!(Mult, std::ops::Mul::mul);
 
-trait UnaryOperator: Display {
-    fn apply(&self, num: Num) -> Num;
-}
-
-trait NAryOperator: Display {
-    fn apply(&self, nums: Drain<Num>) -> Num;
-}
+struct NAdd;
+impl_display!(NAdd, ".+");
 
 impl NAryOperator for NAdd {
     fn apply(&self, nums: Drain<Num>) -> Num {
@@ -276,6 +249,9 @@ impl NAryOperator for NAdd {
     }
 }
 
+struct NMult;
+impl_display!(NMult, ".x");
+
 impl NAryOperator for NMult {
     fn apply(&self, nums: Drain<Num>) -> Num {
         let multiplication = Mult;
@@ -284,30 +260,107 @@ impl NAryOperator for NMult {
     }
 }
 
+struct Pow;
+impl_display!(Pow, "xx");
+
+impl BinaryOperator for Pow {
+    fn apply(&self, lhs: Num, rhs: Num) -> Num {
+        match (lhs, rhs) {
+            (Num::Integer(l), Num::Integer(r)) => Num::Integer(l.pow(r as u32)),
+            (Num::Float(l, prec), Num::Integer(r)) => Num::Float(l.powf(r as f64), prec),
+            (Num::Integer(l), Num::Float(r, prec)) => Num::Float((l as f64).powf(r), prec),
+            (Num::Float(l, lprec), Num::Float(r, rprec)) => {
+                Num::Float(l.powf(r), min(lprec, rprec))
+            }
+        }
+    }
+}
+
+struct RangeEx;
+impl_display!(RangeEx, "..");
+
+impl RangeOperator for RangeEx {
+    fn apply(&self, lhs: Num, rhs: Num) -> Vec<Num> {
+        match (lhs, rhs) {
+            (Num::Integer(l), Num::Integer(r)) => (l..r).into_iter().map(Num::Integer).collect(),
+            _ => Vec::new(),
+        }
+    }
+}
+
+struct RangeInc;
+impl_display!(RangeInc, "..=");
+
+impl RangeOperator for RangeInc {
+    fn apply(&self, lhs: Num, rhs: Num) -> Vec<Num> {
+        match (lhs, rhs) {
+            (Num::Integer(l), Num::Integer(r)) => (l..=r).into_iter().map(Num::Integer).collect(),
+            _ => Vec::new(),
+        }
+    }
+}
+
+struct Sqrt;
+impl_display!(Sqrt, "r");
+
+impl UnaryOperator for Sqrt {
+    fn apply(&self, num: Num) -> Num {
+        match num {
+            Num::Integer(i) => Num::Float((i as f64).sqrt(), DEFAULT_PRECISION),
+            Num::Float(f, prec) => Num::Float(f * f, prec),
+        }
+    }
+}
+
+struct Square;
+impl_display!(Square, "s");
+
+impl UnaryOperator for Square {
+    fn apply(&self, num: Num) -> Num {
+        match num {
+            Num::Integer(i) => Num::Integer(i * i),
+            Num::Float(f, prec) => Num::Float(f * f, prec),
+        }
+    }
+}
+
+struct Sub;
+impl_display!(Sub, "-");
+impl_bin_op!(Sub, std::ops::Sub::sub);
+
+fn get_two_operands(stack: &mut Vec<Num>) -> Result<(Num, Num), &'static str> {
+    let rhs = get_operand(stack)?;
+    let lhs = get_operand(stack)?;
+    Ok((lhs, rhs))
+}
+
+fn get_operand(stack: &mut Vec<Num>) -> Result<Num, &'static str> {
+    stack.pop().ok_or("expecting one more operand on the stack")
+}
+
 fn process_input(input: Vec<Item>) -> Result<Num, &'static str> {
     let mut stack: Vec<Num> = Vec::new();
     for item in input.iter() {
         match item {
-            Item::Operator(Oper::Bin(BinOp { oper: bin_op })) => match stack.pop() {
-                Some(rhs) => match stack.pop() {
-                    Some(lhs) => {
-                        stack.push(bin_op.apply(lhs, rhs));
-                        Ok(())
-                    }
-                    _ => Err("expecting one more operand on the stack"),
-                },
-                _ => Err("expecting two more operands on the stack"),
-            },
-            Item::Operator(Oper::Unary(UnOp { oper: un_op })) => match stack.pop() {
-                Some(num) => {
-                    stack.push(un_op.apply(num));
-                    Ok(())
-                }
-                _ => Err("expecting one more operand on the stack"),
-            },
+            Item::Operator(Oper::Bin(BinOp { oper: bin_op })) => {
+                let (lhs, rhs) = get_two_operands(&mut stack)?;
+                stack.push(bin_op.apply(lhs, rhs));
+                Ok(())
+            }
+            Item::Operator(Oper::Unary(UnOp { oper: un_op })) => {
+                let num = get_operand(&mut stack)?;
+                stack.push(un_op.apply(num));
+                Ok(())
+            }
             Item::Operator(Oper::Nary(NAryOp { oper: nary_op })) => {
                 let result = nary_op.apply(stack.drain(..));
                 stack = vec![result];
+                Ok(())
+            }
+            Item::Operator(Oper::Range(RangeOp { oper: range_op })) => {
+                let (lhs, rhs) = get_two_operands(&mut stack)?;
+                let result = range_op.apply(lhs, rhs);
+                result.into_iter().for_each(|i| stack.push(i));
                 Ok(())
             }
             Item::Operand(num) => {
@@ -337,8 +390,8 @@ fn process_arguments(args: Vec<String>) -> Result<Num, String> {
     }
 }
 
-fn main() -> Result<(), String> {
-    let splitted = std::env::args()
+fn split_all_args_on_whitespace() -> Vec<String> {
+    std::env::args()
         .into_iter()
         .skip(1)
         .flat_map(move |s| {
@@ -346,7 +399,11 @@ fn main() -> Result<(), String> {
                 .map(|t| t.to_string())
                 .collect::<Vec<String>>()
         })
-        .collect();
+        .collect()
+}
+
+fn main() -> Result<(), String> {
+    let splitted = split_all_args_on_whitespace();
     let result = process_arguments(splitted);
     match result {
         Ok(num) => {
@@ -581,6 +638,16 @@ mod tests {
         #[test]
         fn should_support_factorial() {
             test_process_arguments(vec!["3", "!", "4", "+"], Num::Integer(10));
+        }
+
+        #[test]
+        fn should_support_range() {
+            test_process_arguments(vec!["1", "5", "..", ".+"], Num::Integer(10));
+        }
+
+        #[test]
+        fn should_support_inclusive_range() {
+            test_process_arguments(vec!["1", "5", "..=", ".+"], Num::Integer(15));
         }
     }
 
