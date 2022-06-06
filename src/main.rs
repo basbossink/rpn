@@ -1,4 +1,4 @@
-use std::{cmp::min, fmt::Display, str::FromStr, vec::Drain};
+use std::{cmp::min, fmt::Display, str::FromStr};
 
 const DEFAULT_PRECISION: usize = 6;
 
@@ -10,9 +10,9 @@ enum Num {
 
 impl Display for Num {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Num::Integer(i) => i.fmt(f),
-            Num::Float(d, prec) => {
+        match *self {
+            Self::Integer(i) => i.fmt(f),
+            Self::Float(d, prec) => {
                 write!(f, "{res:.prec$e}", res = d, prec = prec - 1)
             }
         }
@@ -36,10 +36,10 @@ impl FromStr for Num {
                         "could not parse as floating point or integer number '{s}'; {err_1}; {err_2}"
                     ))
                 },
-                |f| Ok(Num::Float(f, prec)),
+                |f| Ok(Self::Float(f, prec)),
             )
                 },
-                |i| Ok(Num::Integer(i)),
+                |i| Ok(Self::Integer(i)),
             )
     }
 }
@@ -56,8 +56,8 @@ impl FromStr for Item {
         s.parse::<Num>().map_or_else(
             |err_1| s.parse::<Oper>().map_or_else(
             |err_2| Err(format!("could not parse '{s}' as either a number or operator; {err_1}; {err_2}")),
-            |o| Ok(Item::Operator(o))),
-            |n| Ok(Item::Operand(n)))
+            |o| Ok(Self::Operator(o))),
+            |n| Ok(Self::Operand(n)))
     }
 }
 
@@ -70,7 +70,7 @@ enum Oper {
 
 impl Display for Oper {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
+        match &*self {
             Self::Bin(b) => b.fmt(f),
             Self::Unary(u) => u.fmt(f),
             Self::Nary(n) => n.fmt(f),
@@ -84,40 +84,40 @@ impl FromStr for Oper {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "+" => Ok(Oper::Bin(BinOp {
+            "+" => Ok(Self::Bin(BinOp {
                 oper: Box::new(Add),
             })),
-            "-" => Ok(Oper::Bin(BinOp {
+            "-" => Ok(Self::Bin(BinOp {
                 oper: Box::new(Sub),
             })),
-            "x" => Ok(Oper::Bin(BinOp {
+            "x" => Ok(Self::Bin(BinOp {
                 oper: Box::new(Mult),
             })),
-            "xx" => Ok(Oper::Bin(BinOp {
+            "xx" => Ok(Self::Bin(BinOp {
                 oper: Box::new(Pow),
             })),
-            "/" => Ok(Oper::Bin(BinOp {
+            "/" => Ok(Self::Bin(BinOp {
                 oper: Box::new(Div),
             })),
-            "s" => Ok(Oper::Unary(UnOp {
+            "s" => Ok(Self::Unary(UnOp {
                 oper: Box::new(Square),
             })),
-            "r" => Ok(Oper::Unary(UnOp {
+            "r" => Ok(Self::Unary(UnOp {
                 oper: Box::new(Sqrt),
             })),
-            "!" => Ok(Oper::Unary(UnOp {
+            "!" => Ok(Self::Unary(UnOp {
                 oper: Box::new(Factorial),
             })),
-            ".+" => Ok(Oper::Nary(NAryOp {
+            ".+" => Ok(Self::Nary(NAryOp {
                 oper: Box::new(NAdd),
             })),
-            ".x" => Ok(Oper::Nary(NAryOp {
+            ".x" => Ok(Self::Nary(NAryOp {
                 oper: Box::new(NMult),
             })),
-            ".." => Ok(Oper::Range(RangeOp {
+            ".." => Ok(Self::Range(RangeOp {
                 oper: Box::new(RangeEx),
             })),
-            "..=" => Ok(Oper::Range(RangeOp {
+            "..=" => Ok(Self::Range(RangeOp {
                 oper: Box::new(RangeInc),
             })),
             bad => Err(format!("not a valid operator '{bad}'")),
@@ -134,7 +134,7 @@ trait UnaryOperator: Display {
 }
 
 trait NAryOperator: Display {
-    fn apply(&self, nums: Drain<Num>) -> Num;
+    fn apply(&self, nums: std::vec::IntoIter<Num>) -> Num;
 }
 
 trait RangeOperator: Display {
@@ -224,12 +224,12 @@ impl UnaryOperator for Factorial {
     }
 }
 
-fn fact(n: i64) -> i64 {
+const fn fact(n: i64) -> i64 {
     let mut result = 1;
     let mut counter = 1;
     while counter <= n {
-        result = result * counter;
-        counter = counter + 1;
+        result *= counter;
+        counter += 1;
     }
     result
 }
@@ -242,7 +242,7 @@ struct NAdd;
 impl_display!(NAdd, ".+");
 
 impl NAryOperator for NAdd {
-    fn apply(&self, nums: Drain<Num>) -> Num {
+    fn apply(&self, nums: std::vec::IntoIter<Num>) -> Num {
         let adder = Add;
         nums.into_iter()
             .fold(Num::Integer(0), |acc, num| adder.apply(acc, num))
@@ -253,7 +253,7 @@ struct NMult;
 impl_display!(NMult, ".x");
 
 impl NAryOperator for NMult {
-    fn apply(&self, nums: Drain<Num>) -> Num {
+    fn apply(&self, nums: std::vec::IntoIter<Num>) -> Num {
         let multiplication = Mult;
         nums.into_iter()
             .fold(Num::Integer(1), |acc, num| multiplication.apply(acc, num))
@@ -338,11 +338,11 @@ fn get_operand(stack: &mut Vec<Num>) -> Result<Num, &'static str> {
     stack.pop().ok_or("expecting one more operand on the stack")
 }
 
-fn process_input(input: Vec<Item>, print_debug: bool) -> Result<Num, &'static str> {
+fn process_input(input: &[Item], print_debug: bool) -> Result<Num, &'static str> {
     let mut stack: Vec<Num> = Vec::new();
-    for item in input.iter() {
-        match item {
-            Item::Operator(Oper::Bin(BinOp { oper: bin_op })) => {
+    for item in input {
+        match *item {
+            Item::Operator(Oper::Bin(BinOp { oper: ref bin_op })) => {
                 let (lhs, rhs) = get_two_operands(&mut stack)?;
                 let result = bin_op.apply(lhs, rhs);
                 if print_debug {
@@ -351,7 +351,7 @@ fn process_input(input: Vec<Item>, print_debug: bool) -> Result<Num, &'static st
                 stack.push(result);
                 Ok(())
             }
-            Item::Operator(Oper::Unary(UnOp { oper: un_op })) => {
+            Item::Operator(Oper::Unary(UnOp { oper: ref un_op })) => {
                 let num = get_operand(&mut stack)?;
                 let result = un_op.apply(num);
                 if print_debug {
@@ -360,15 +360,15 @@ fn process_input(input: Vec<Item>, print_debug: bool) -> Result<Num, &'static st
                 stack.push(result);
                 Ok(())
             }
-            Item::Operator(Oper::Nary(NAryOp { oper: nary_op })) => {
-                let result = nary_op.apply(stack.drain(..));
+            Item::Operator(Oper::Nary(NAryOp { oper: ref nary_op })) => {
+                let result = nary_op.apply(stack.into_iter());
                 if print_debug {
                     println!("... {nary_op} = {result}");
                 }
                 stack = vec![result];
                 Ok(())
             }
-            Item::Operator(Oper::Range(RangeOp { oper: range_op })) => {
+            Item::Operator(Oper::Range(RangeOp { oper: ref range_op })) => {
                 let (lhs, rhs) = get_two_operands(&mut stack)?;
                 if print_debug {
                     println!("putting range {lhs} {range_op} {rhs} on the stack");
@@ -377,7 +377,7 @@ fn process_input(input: Vec<Item>, print_debug: bool) -> Result<Num, &'static st
                 result.into_iter().for_each(|i| stack.push(i));
                 Ok(())
             }
-            Item::Operand(num) => {
+            Item::Operand(ref num) => {
                 stack.push(*num);
                 if print_debug {
                     println!("putting {num} on the stack; new stack {:?}", stack);
@@ -394,16 +394,16 @@ fn process_arguments(args: Vec<String>, print_debug: bool) -> Result<Num, String
         .into_iter()
         .map(|s| s.parse::<Item>())
         .partition(Result::is_ok);
-    if !errors.is_empty() {
+    if errors.is_empty() {
+        let good_ones: Vec<_> = numbers.into_iter().map(|i| i.ok().unwrap()).collect();
+        process_input(&good_ones, print_debug).map_err(String::from)
+    } else {
         let joined = errors
             .into_iter()
             .map(|e| e.err().unwrap())
             .collect::<Vec<String>>()
             .join(";");
         Err(joined)
-    } else {
-        let good_ones = numbers.into_iter().map(|i| i.ok().unwrap()).collect();
-        process_input(good_ones, print_debug).map_err(String::from)
     }
 }
 
@@ -413,7 +413,7 @@ fn split_all_args_on_whitespace() -> Vec<String> {
         .skip(1)
         .flat_map(move |s| {
             s.split_whitespace()
-                .map(|t| t.to_string())
+                .map(std::borrow::ToOwned::to_owned)
                 .collect::<Vec<String>>()
         })
         .collect()
@@ -423,16 +423,14 @@ fn print_version() {
     let version = env!("CARGO_PKG_VERSION");
     let name = env!("CARGO_PKG_NAME");
     let authors = env!("CARGO_PKG_AUTHORS");
-    let copyright_year = env!("COPYRIGHT_YEAR");
-    let hash = env!("GIT_COMMIT_SHORT_HASH");
     let repository = env!("CARGO_PKG_REPOSITORY");
     println!(
-        r#"{name} {version} {hash}.
-Copyright (C) {copyright_year} {authors}.
+        r#"{name} {version}.
+Copyright (C) 2022 {authors}.
 License: BSD 2-Clause "Simplified" License. <https://github.com/basbossink/rpn/raw/main/LICENSE>.
 Home: <{repository}>.
 "#
-    )
+    );
 }
 
 fn main() -> Result<(), String> {
@@ -444,7 +442,7 @@ fn main() -> Result<(), String> {
     let (debug, rest): (Vec<_>, Vec<_>) = splitted
         .into_iter()
         .partition(|st| *st == "-d" || *st == "--debug");
-    let print_debug = debug.len() > 0;
+    let print_debug = !debug.is_empty();
     let result = process_arguments(rest, print_debug);
     match result {
         Ok(num) => {
@@ -459,166 +457,183 @@ fn main() -> Result<(), String> {
 mod tests {
     use super::*;
 
+    fn act_assert(input: &[Item], expected: Num) {
+        let result = process_input(&input, false).unwrap();
+        assert_eq!(expected, result)
+    }
+
     #[test]
     fn should_support_integer_addition() {
-        let input = vec![
-            Item::Operand(Num::Integer(1)),
-            Item::Operand(Num::Integer(2)),
-            Item::Operator(Oper::Bin(BinOp {
-                oper: Box::new(Add),
-            })),
-        ];
-        let result = process_input(input).unwrap();
-        assert_eq!(Num::Integer(3), result)
+        act_assert(
+            &[
+                Item::Operand(Num::Integer(1)),
+                Item::Operand(Num::Integer(2)),
+                Item::Operator(Oper::Bin(BinOp {
+                    oper: Box::new(Add),
+                })),
+            ],
+            Num::Integer(3),
+        );
     }
 
     #[test]
     fn should_support_integer_squaring() {
-        let input = vec![
-            Item::Operand(Num::Integer(2)),
-            Item::Operator(Oper::Unary(UnOp {
-                oper: Box::new(Square),
-            })),
-        ];
-        let result = process_input(input).unwrap();
-        assert_eq!(Num::Integer(4), result)
+        act_assert(
+            &[
+                Item::Operand(Num::Integer(2)),
+                Item::Operator(Oper::Unary(UnOp {
+                    oper: Box::new(Square),
+                })),
+            ],
+            Num::Integer(4),
+        );
     }
 
     #[test]
     fn should_support_square_root() {
-        let input = vec![
-            Item::Operand(Num::Integer(4)),
-            Item::Operator(Oper::Unary(UnOp {
-                oper: Box::new(Sqrt),
-            })),
-        ];
-        let result = process_input(input).unwrap();
-        assert_eq!(Num::Float(2.0, DEFAULT_PRECISION), result)
+        act_assert(
+            &[
+                Item::Operand(Num::Integer(4)),
+                Item::Operator(Oper::Unary(UnOp {
+                    oper: Box::new(Sqrt),
+                })),
+            ],
+            Num::Float(2.0, DEFAULT_PRECISION),
+        );
     }
 
     #[test]
     fn should_support_integer_power_of() {
-        let input = vec![
-            Item::Operand(Num::Integer(2)),
-            Item::Operand(Num::Integer(2)),
-            Item::Operator(Oper::Bin(BinOp {
-                oper: Box::new(Pow),
-            })),
-        ];
-        let result = process_input(input).unwrap();
-        assert_eq!(Num::Integer(4), result)
+        act_assert(
+            &[
+                Item::Operand(Num::Integer(2)),
+                Item::Operand(Num::Integer(2)),
+                Item::Operator(Oper::Bin(BinOp {
+                    oper: Box::new(Pow),
+                })),
+            ],
+            Num::Integer(4),
+        );
     }
 
     #[test]
     fn should_support_float_and_integer_addition() {
-        let input = vec![
-            Item::Operand(Num::Float(1.0, 1)),
-            Item::Operand(Num::Integer(2)),
-            Item::Operator(Oper::Bin(BinOp {
-                oper: Box::new(Add),
-            })),
-        ];
-        let result = process_input(input).unwrap();
-        assert_eq!(Num::Float(3.0, 1), result)
+        act_assert(
+            &[
+                Item::Operand(Num::Float(1.0, 1)),
+                Item::Operand(Num::Integer(2)),
+                Item::Operator(Oper::Bin(BinOp {
+                    oper: Box::new(Add),
+                })),
+            ],
+            Num::Float(3.0, 1),
+        );
     }
 
     #[test]
     fn should_support_float_and_integer_power_of() {
-        let input = vec![
-            Item::Operand(Num::Integer(4)),
-            Item::Operand(Num::Float(0.5, 1)),
-            Item::Operator(Oper::Bin(BinOp {
-                oper: Box::new(Pow),
-            })),
-        ];
-        let result = process_input(input).unwrap();
-        assert_eq!(Num::Float(2.0, 1), result)
+        act_assert(
+            &[
+                Item::Operand(Num::Integer(4)),
+                Item::Operand(Num::Float(0.5, 1)),
+                Item::Operator(Oper::Bin(BinOp {
+                    oper: Box::new(Pow),
+                })),
+            ],
+            Num::Float(2.0, 1),
+        );
     }
 
     #[test]
     fn should_support_multiple_integer_additions_in_a_row() {
-        let input = vec![
-            Item::Operand(Num::Integer(1)),
-            Item::Operand(Num::Integer(2)),
-            Item::Operator(Oper::Bin(BinOp {
-                oper: Box::new(Add),
-            })),
-            Item::Operand(Num::Integer(1)),
-            Item::Operand(Num::Integer(2)),
-            Item::Operator(Oper::Bin(BinOp {
-                oper: Box::new(Add),
-            })),
-            Item::Operator(Oper::Bin(BinOp {
-                oper: Box::new(Add),
-            })),
-        ];
-        let result = process_input(input).unwrap();
-        assert_eq!(Num::Integer(6), result)
+        act_assert(
+            &[
+                Item::Operand(Num::Integer(1)),
+                Item::Operand(Num::Integer(2)),
+                Item::Operator(Oper::Bin(BinOp {
+                    oper: Box::new(Add),
+                })),
+                Item::Operand(Num::Integer(1)),
+                Item::Operand(Num::Integer(2)),
+                Item::Operator(Oper::Bin(BinOp {
+                    oper: Box::new(Add),
+                })),
+                Item::Operator(Oper::Bin(BinOp {
+                    oper: Box::new(Add),
+                })),
+            ],
+            Num::Integer(6),
+        );
     }
 
     #[test]
     fn should_support_integer_multiplication() {
-        let input = vec![
-            Item::Operand(Num::Integer(2)),
-            Item::Operand(Num::Integer(3)),
-            Item::Operator(Oper::Bin(BinOp {
-                oper: Box::new(Mult),
-            })),
-        ];
-        let result = process_input(input).unwrap();
-        assert_eq!(Num::Integer(6), result)
+        act_assert(
+            &[
+                Item::Operand(Num::Integer(2)),
+                Item::Operand(Num::Integer(3)),
+                Item::Operator(Oper::Bin(BinOp {
+                    oper: Box::new(Mult),
+                })),
+            ],
+            Num::Integer(6),
+        );
     }
 
     #[test]
     fn should_support_integer_and_float_multiplication() {
-        let input = vec![
-            Item::Operand(Num::Integer(2)),
-            Item::Operand(Num::Float(3.5, 1)),
-            Item::Operator(Oper::Bin(BinOp {
-                oper: Box::new(Mult),
-            })),
-        ];
-        let result = process_input(input).unwrap();
-        assert_eq!(Num::Float(7.0, 1), result)
+        act_assert(
+            &[
+                Item::Operand(Num::Integer(2)),
+                Item::Operand(Num::Float(3.5, 1)),
+                Item::Operator(Oper::Bin(BinOp {
+                    oper: Box::new(Mult),
+                })),
+            ],
+            Num::Float(7.0, 1),
+        );
     }
 
     #[test]
     fn should_support_integer_division() {
-        let input = vec![
-            Item::Operand(Num::Integer(5)),
-            Item::Operand(Num::Integer(2)),
-            Item::Operator(Oper::Bin(BinOp {
-                oper: Box::new(Div),
-            })),
-        ];
-        let result = process_input(input).unwrap();
-        assert_eq!(Num::Integer(2), result)
+        act_assert(
+            &[
+                Item::Operand(Num::Integer(5)),
+                Item::Operand(Num::Integer(2)),
+                Item::Operator(Oper::Bin(BinOp {
+                    oper: Box::new(Div),
+                })),
+            ],
+            Num::Integer(2),
+        );
     }
 
     #[test]
     fn should_support_integer_and_float_division() {
-        let input = vec![
-            Item::Operand(Num::Float(5.0, 1)),
-            Item::Operand(Num::Integer(2)),
-            Item::Operator(Oper::Bin(BinOp {
-                oper: Box::new(Div),
-            })),
-        ];
-        let result = process_input(input).unwrap();
-        assert_eq!(Num::Float(2.5, 1), result)
+        act_assert(
+            &[
+                Item::Operand(Num::Float(5.0, 1)),
+                Item::Operand(Num::Integer(2)),
+                Item::Operator(Oper::Bin(BinOp {
+                    oper: Box::new(Div),
+                })),
+            ],
+            Num::Float(2.5, 1),
+        );
     }
 
     #[test]
     fn should_support_track_significant_digits() {
-        let input = vec![
-            Item::Operand(Num::Float(5.00, 2)),
-            Item::Operand(Num::Float(2.0, 1)),
-            Item::Operator(Oper::Bin(BinOp {
-                oper: Box::new(Div),
-            })),
-        ];
-        let result = process_input(input).unwrap();
-        assert_eq!(Num::Float(2.5, 1), result)
+        act_assert(
+            &[
+                Item::Operand(Num::Float(5.00, 2)),
+                Item::Operand(Num::Float(2.0, 1)),
+                Item::Operator(Oper::Bin(BinOp {
+                    oper: Box::new(Div),
+                })),
+            ],
+            Num::Float(2.5, 1),
+        );
     }
 
     #[test]
@@ -651,14 +666,14 @@ mod tests {
 
     #[test]
     fn should_round_to_significant_digit() {
-        let input = vec![
+        let input = [
             Item::Operand(Num::Float(1.234, 4)),
             Item::Operand(Num::Float(1.2341, 5)),
             Item::Operator(Oper::Bin(BinOp {
                 oper: Box::new(Add),
             })),
         ];
-        let result = format!("{}", process_input(input).unwrap());
+        let result = format!("{}", process_input(&input, false).unwrap());
         assert_eq!("2.468e0", result)
     }
 
@@ -667,7 +682,7 @@ mod tests {
 
         fn test_process_arguments(args: Vec<&str>, expected: Num) {
             let input = args.into_iter().map(String::from).collect();
-            let actual = process_arguments(input).unwrap();
+            let actual = process_arguments(input, false).unwrap();
             assert_eq!(expected, actual);
         }
 

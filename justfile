@@ -2,10 +2,6 @@ alias b := build
 alias br := build-release
 alias t := test
 alias w := watch
-alias tc := test-coverage
-
-export COPYRIGHT_YEAR := `date +%Y`
-export GIT_COMMIT_SHORT_HASH := `git rev-parse --short HEAD`
 
 build:
 	cargo build
@@ -33,6 +29,3 @@ clippy:
 		-A clippy::missing_errors_doc \
 		-A clippy::missing_inline_in_public_items \
 		-A clippy::separated_literal_suffix
-
-test-coverage:
-	cargo tarpaulin --skip-clean
