@@ -1,6 +1,8 @@
 use std::{cmp::min, fmt::Display, str::FromStr};
 
 const DEFAULT_PRECISION: usize = 6;
+const PI: Num = Num::Float(std::f64::consts::PI, 37);
+const PI_TOKEN: &str = "pi";
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Num {
@@ -23,6 +25,9 @@ impl FromStr for Num {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if PI_TOKEN == s {
+            return Ok(PI);
+        }
         s.parse::<i64>().map_or_else(
                 |err_1| {
             let prec = s
@@ -99,6 +104,9 @@ impl FromStr for Oper {
             "/" => Ok(Self::Bin(BinOp {
                 oper: Box::new(Div),
             })),
+            "b" => Ok(Self::Bin(BinOp {
+                oper: Box::new(Binomial),
+            })),
             "s" => Ok(Self::Unary(UnOp {
                 oper: Box::new(Square),
             })),
@@ -154,11 +162,13 @@ macro_rules! impl_disp_oper {
 struct BinOp {
     oper: Box<dyn BinaryOperator>,
 }
+
 impl_disp_oper!(BinOp, oper);
 
 struct NAryOp {
     oper: Box<dyn NAryOperator>,
 }
+
 impl_disp_oper!(NAryOp, oper);
 
 struct RangeOp {
@@ -170,6 +180,7 @@ impl_disp_oper!(RangeOp, oper);
 struct UnOp {
     oper: Box<dyn UnaryOperator>,
 }
+
 impl_disp_oper!(UnOp, oper);
 
 macro_rules! impl_bin_op {
@@ -206,6 +217,24 @@ macro_rules! impl_display {
 struct Add;
 impl_display!(Add, "+");
 impl_bin_op!(Add, std::ops::Add::add);
+
+struct Binomial;
+impl_display!(Binomial, "b");
+
+impl BinaryOperator for Binomial {
+    fn apply(&self, lhs: Num, rhs: Num) -> Num {
+        match (lhs, rhs) {
+            (Num::Integer(l), Num::Integer(r)) if r <= l => Num::Integer(binom(l, r)),
+            _ => Num::Float(f64::NAN, DEFAULT_PRECISION),
+        }
+    }
+}
+
+fn binom(n: i64, k: i64) -> i64 {
+    let numer: i64 = ((n - (k - 1))..=n).product();
+    let denom = fact(k);
+    numer / denom
+}
 
 struct Div;
 impl_display!(Div, "/");
@@ -717,6 +746,11 @@ mod tests {
         #[test]
         fn should_support_inclusive_range() {
             test_process_arguments(vec!["1", "5", "..=", ".+"], Num::Integer(15));
+        }
+
+        #[test]
+        fn should_support_combinations() {
+            test_process_arguments(vec!["6", "3", "b"], Num::Integer(20));
         }
     }
 

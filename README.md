@@ -44,6 +44,8 @@ $ rpn 37 r # calculate the square root of 37
 6.08276e0
 $ rpn 5 ! # calculate 5 factorial
 120
+$ rpn pi 0.15 s # pi is a predefined constant (π), calculate the surface of a cicle with radius 0.15
+2.25e-2
 ```
 
 To see the version information use the `-v` or `--version` flag. If you get unexpected results the `-d` or `--debug` flag can be used as the first parameter, this prints out the intermediary steps.
@@ -57,6 +59,7 @@ To see the version information use the `-v` or `--version` flag. If you get unex
 |`x`| multiplication | `2 3 x # => 6` |
 |`xx`| exponentiation | `2 3 xx # => 8`|
 |`/`| division | `2 3 / # => 0; 3.0 2 / # =>  1.5`|
+|`b`| binomial coefficient | `6 3 b # => 20; 6!/(3!*(6-3)!)`|
 |`s`| square | `3 s # => 9`|
 |`r`| square root | `4 r # => 2`|
 |`!`| factorial | `3 ! # => 6`|
@@ -64,10 +67,11 @@ To see the version information use the `-v` or `--version` flag. If you get unex
 |`.x`| product | `2 3 4 .x # => 24`|
 |`..`| put range excluding end on the stack | `2 5 .. .+ # => 9`|
 |`..=`| put range including end on the stack | `2 5 .. .+ # => 14`|
+|`pi`| predefined constant π | ` 2 pi 0.54 .x # => 3.39e0`|
 
 ### License
 
-This project is licensed under the BSD-2-clause license
+This project is licensed under the BSD-2-clause license.
 
 ***
 Readme made with 💖 using [README Generator by Dhravya Shah](https://github.com/Dhravya/readme-generator)
