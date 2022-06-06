@@ -1,6 +1,6 @@
 [package]
 name = "rpn"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2021"
 license = "BSD-2-Clause"
 authors = ["Bas Bossink <bas.bossink@gmail.com>"]
