@@ -608,6 +608,19 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
+    #[test]
+    fn should_round_to_significant_digit() {
+        let input = vec![
+            Item::Operand(Num::Float(1.234, 4)),
+            Item::Operand(Num::Float(1.2341, 5)),
+            Item::Operator(Oper::Bin(BinOp {
+                oper: Box::new(Add),
+            })),
+        ];
+        let result = format!("{}", process_input(input).unwrap());
+        assert_eq!("2.468e0", result)
+    }
+
     mod process_arguments {
         use super::*;
 
