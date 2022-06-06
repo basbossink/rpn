@@ -2,6 +2,9 @@
 name = "rpn"
 version = "0.1.0"
 edition = "2021"
+license = "BSD-2-Clause"
+authors = ["Bas Bossink <bas.bossink@gmail.com>"]
+repository = "https://github.com/basbossink/rpn"
 
 [profile.release]
 strip = true

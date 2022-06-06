@@ -4,16 +4,16 @@ alias t := test
 alias w := watch
 alias tc := test-coverage
 
+export COPYRIGHT_YEAR := `date +%Y`
+export GIT_COMMIT_SHORT_HASH := `git rev-parse --short HEAD`
+
 build:
 	cargo build
 
 build-release: 
 	RUSTFLAGS="-C target-cpu=native" cargo build --release
 
-flame:
-	cargo flamegraph
-
-test: 
+test:
 	cargo nextest run -j 1
 
 watch:

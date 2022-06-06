@@ -338,33 +338,50 @@ fn get_operand(stack: &mut Vec<Num>) -> Result<Num, &'static str> {
     stack.pop().ok_or("expecting one more operand on the stack")
 }
 
-fn process_input(input: Vec<Item>) -> Result<Num, &'static str> {
+fn process_input(input: Vec<Item>, print_debug: bool) -> Result<Num, &'static str> {
     let mut stack: Vec<Num> = Vec::new();
     for item in input.iter() {
         match item {
             Item::Operator(Oper::Bin(BinOp { oper: bin_op })) => {
                 let (lhs, rhs) = get_two_operands(&mut stack)?;
-                stack.push(bin_op.apply(lhs, rhs));
+                let result = bin_op.apply(lhs, rhs);
+                if print_debug {
+                    println!("{lhs} {bin_op} {rhs} = {result}");
+                }
+                stack.push(result);
                 Ok(())
             }
             Item::Operator(Oper::Unary(UnOp { oper: un_op })) => {
                 let num = get_operand(&mut stack)?;
-                stack.push(un_op.apply(num));
+                let result = un_op.apply(num);
+                if print_debug {
+                    println!("{num} {un_op} = {result}");
+                }
+                stack.push(result);
                 Ok(())
             }
             Item::Operator(Oper::Nary(NAryOp { oper: nary_op })) => {
                 let result = nary_op.apply(stack.drain(..));
+                if print_debug {
+                    println!("... {nary_op} = {result}");
+                }
                 stack = vec![result];
                 Ok(())
             }
             Item::Operator(Oper::Range(RangeOp { oper: range_op })) => {
                 let (lhs, rhs) = get_two_operands(&mut stack)?;
+                if print_debug {
+                    println!("putting range {lhs} {range_op} {rhs} on the stack");
+                }
                 let result = range_op.apply(lhs, rhs);
                 result.into_iter().for_each(|i| stack.push(i));
                 Ok(())
             }
             Item::Operand(num) => {
                 stack.push(*num);
+                if print_debug {
+                    println!("putting {num} on the stack; new stack {:?}", stack);
+                }
                 Ok(())
             }
         }?;
@@ -372,7 +389,7 @@ fn process_input(input: Vec<Item>) -> Result<Num, &'static str> {
     stack.pop().ok_or("stack empty at end of input")
 }
 
-fn process_arguments(args: Vec<String>) -> Result<Num, String> {
+fn process_arguments(args: Vec<String>, print_debug: bool) -> Result<Num, String> {
     let (numbers, errors): (Vec<_>, Vec<_>) = args
         .into_iter()
         .map(|s| s.parse::<Item>())
@@ -386,7 +403,7 @@ fn process_arguments(args: Vec<String>) -> Result<Num, String> {
         Err(joined)
     } else {
         let good_ones = numbers.into_iter().map(|i| i.ok().unwrap()).collect();
-        process_input(good_ones).map_err(String::from)
+        process_input(good_ones, print_debug).map_err(String::from)
     }
 }
 
@@ -402,9 +419,33 @@ fn split_all_args_on_whitespace() -> Vec<String> {
         .collect()
 }
 
+fn print_version() {
+    let version = env!("CARGO_PKG_VERSION");
+    let name = env!("CARGO_PKG_NAME");
+    let authors = env!("CARGO_PKG_AUTHORS");
+    let copyright_year = env!("COPYRIGHT_YEAR");
+    let hash = env!("GIT_COMMIT_SHORT_HASH");
+    let repository = env!("CARGO_PKG_REPOSITORY");
+    println!(
+        r#"{name} {version} {hash}.
+Copyright (C) {copyright_year} {authors}.
+License BSD 2-Clause "Simplified" License. <https://github.com/basbossink/rpn/raw/main/LICENSE>.
+Home: <{repository}>.
+"#
+    )
+}
+
 fn main() -> Result<(), String> {
     let splitted = split_all_args_on_whitespace();
-    let result = process_arguments(splitted);
+    if splitted.iter().any(|s| s == "-v" || s == "--version") {
+        print_version();
+        return Ok(());
+    }
+    let (debug, rest): (Vec<_>, Vec<_>) = splitted
+        .into_iter()
+        .partition(|st| *st == "-d" || *st == "--debug");
+    let print_debug = debug.len() > 0;
+    let result = process_arguments(rest, print_debug);
     match result {
         Ok(num) => {
             println!("{num}");
