@@ -6,6 +6,12 @@ A command-line reverse polish notation calculator.
 
 ### Installation
 
+#### Windows/Linux/Mac
+
+If you are either on Windows, Linux or Mac, the preferred way of installing is downloading the appropriate archive for your operating system from the [Releases section](https://github.com/basbossink/rpn/releases) and unpacking it somewhere on your system. Note that the archives do *NOT* contain a top level directory. After that just ensure that `rpn` is on your `$PATH`.
+
+#### Build from source
+
 A working [Rust](https://www.rust-lang.org/) development environment is required to install this calculator. If needed follow the [installation instructions](https://www.rust-lang.org/tools/install) for your platform.
 
 ```
