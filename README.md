@@ -72,7 +72,7 @@ To see the version information use the `-v` or `--version` flag. If you get unex
 |`.+`| summation | `2 3 4 .+ # => 9`|
 |`.x`| product | `2 3 4 .x # => 24`|
 |`..`| put range excluding end on the stack | `2 5 .. .+ # => 9`|
-|`..=`| put range including end on the stack | `2 5 .. .+ # => 14`|
+|`..=`| put range including end on the stack | `2 5 ..= .+ # => 14`|
 |`pi`| predefined constant π | ` 2 pi 0.54 .x # => 3.39e0`|
 
 ### License
