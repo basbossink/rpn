@@ -429,7 +429,7 @@ fn print_version() {
     println!(
         r#"{name} {version} {hash}.
 Copyright (C) {copyright_year} {authors}.
-License BSD 2-Clause "Simplified" License. <https://github.com/basbossink/rpn/raw/main/LICENSE>.
+License: BSD 2-Clause "Simplified" License. <https://github.com/basbossink/rpn/raw/main/LICENSE>.
 Home: <{repository}>.
 "#
     )
