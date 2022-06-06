@@ -472,14 +472,9 @@ fn main() -> Result<(), String> {
         .into_iter()
         .partition(|st| *st == "-d" || *st == "--debug");
     let print_debug = !debug.is_empty();
-    let result = process_arguments(rest, print_debug);
-    match result {
-        Ok(num) => {
-            println!("{num}");
-            Ok(())
-        }
-        Err(err) => Err(err),
-    }
+    let num = process_arguments(rest, print_debug)?;
+    println!("{num}");
+    Ok(())
 }
 
 #[cfg(test)]
