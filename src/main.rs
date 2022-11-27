@@ -1,3 +1,4 @@
+// Copyright (C) 2022 by Bas Bossink
 use std::{cmp::min, fmt::Display, str::FromStr};
 
 const DEFAULT_PRECISION: usize = 6;

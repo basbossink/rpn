@@ -13,3 +13,7 @@ lto = true
 opt-level = 3
 codegen-units = 1
 panic = "abort"
+
+[dependencies]
+assert_cmd = "2.0.6"
+predicates = "2.1.3"
