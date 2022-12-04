@@ -15,6 +15,9 @@ impl Display for Num {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
             Self::Integer(i) => i.fmt(f),
+            Self::Float(d, prec) if -10.0_f64 < d && d < 10.0_f64 => {
+                write!(f, "{res:.prec$}", res = d, prec = prec - 1)
+            }
             Self::Float(d, prec) => {
                 write!(f, "{res:.prec$e}", res = d, prec = prec - 1)
             }
@@ -23,9 +26,9 @@ impl Display for Num {
 }
 
 impl FromStr for Num {
-    type Err = String;
+    type Err = RpnError;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         if PI_TOKEN == s {
             return Ok(PI);
         }
@@ -38,9 +41,9 @@ impl FromStr for Num {
                 .count();
             s.parse::<f64>().map_or_else(
                 |err_2| {
-                    Err(format!(
-                        "could not parse as floating point or integer number '{s}'; {err_1}; {err_2}"
-                    ))
+                    Err(Self::Err::Syntax(format!(
+                        "could not parse as floating point or integer number '{s}';\n\t\t\t- {err_1};\n\t\t\t- {err_2}"
+                    )))
                 },
                 |f| Ok(Self::Float(f, prec)),
             )
@@ -56,12 +59,12 @@ enum Item {
 }
 
 impl FromStr for Item {
-    type Err = String;
+    type Err = RpnError;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         s.parse::<Num>().map_or_else(
             |err_1| s.parse::<Oper>().map_or_else(
-            |err_2| Err(format!("could not parse '{s}' as either a number or operator; {err_1}; {err_2}")),
+            |err_2| Err(Self::Err::Syntax(format!("could not parse '{s}' as either a number or operator;\n\t\t- {};\n\t\t- {}", err_1.msg(), err_2.msg()))),
             |o| Ok(Self::Operator(o))),
             |n| Ok(Self::Operand(n)))
     }
@@ -76,7 +79,7 @@ enum Oper {
 
 impl Display for Oper {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &*self {
+        match self {
             Self::Bin(b) => b.fmt(f),
             Self::Unary(u) => u.fmt(f),
             Self::Nary(n) => n.fmt(f),
@@ -86,9 +89,9 @@ impl Display for Oper {
 }
 
 impl FromStr for Oper {
-    type Err = String;
+    type Err = RpnError;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
             "+" => Ok(Self::Bin(BinOp {
                 oper: Box::new(Add),
@@ -129,7 +132,7 @@ impl FromStr for Oper {
             "..=" => Ok(Self::Range(RangeOp {
                 oper: Box::new(RangeInc),
             })),
-            bad => Err(format!("not a valid operator '{bad}'")),
+            bad => Err(Self::Err::Syntax(format!("not a valid operator '{bad}'"))),
         }
     }
 }
@@ -358,17 +361,58 @@ struct Sub;
 impl_display!(Sub, "-");
 impl_bin_op!(Sub, std::ops::Sub::sub);
 
-fn get_two_operands(stack: &mut Vec<Num>) -> Result<(Num, Num), &'static str> {
+#[derive(Debug)]
+enum RpnError {
+    Syntax(String),
+    Stack(String),
+    Io(std::io::Error),
+}
+
+impl RpnError {
+    fn msg(self) -> String {
+        match self {
+            Self::Syntax(s) => s,
+            Self::Stack(s) => s,
+            Self::Io(e) => e.to_string(),
+        }
+    }
+}
+
+type Result<T> = std::result::Result<T, RpnError>;
+
+impl Display for RpnError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Syntax(s) => write!(f, "syntax error: {s}"),
+            Self::Stack(s) => write!(f, "stack error: {s}"),
+            Self::Io(e) => write!(f, "io error: {e:?}"),
+        }
+    }
+}
+
+impl From<std::io::Error> for RpnError {
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+
+fn get_two_operands(stack: &mut Vec<Num>) -> Result<(Num, Num)> {
     let rhs = get_operand(stack)?;
     let lhs = get_operand(stack)?;
     Ok((lhs, rhs))
 }
 
-fn get_operand(stack: &mut Vec<Num>) -> Result<Num, &'static str> {
-    stack.pop().ok_or("expecting one more operand on the stack")
+fn get_operand(stack: &mut Vec<Num>) -> Result<Num> {
+    stack
+        .pop()
+        .ok_or_else(|| RpnError::Stack("expecting one more operand on the stack".to_owned()))
 }
 
-fn process_input(input: &[Item], print_debug: bool) -> Result<Num, &'static str> {
+fn process_input(
+    input: &[Item],
+    print_debug: bool,
+    mut stdout: impl std::io::Write,
+) -> Result<Num> {
     let mut stack: Vec<Num> = Vec::new();
     for item in input {
         match *item {
@@ -376,16 +420,16 @@ fn process_input(input: &[Item], print_debug: bool) -> Result<Num, &'static str>
                 let (lhs, rhs) = get_two_operands(&mut stack)?;
                 let result = bin_op.apply(lhs, rhs);
                 if print_debug {
-                    println!("{lhs} {bin_op} {rhs} = {result}");
+                    stdout.write_fmt(format_args!("{lhs} {bin_op} {rhs} = {result}\n"))?;
                 }
                 stack.push(result);
-                Ok(())
+                Ok::<(), RpnError>(())
             }
             Item::Operator(Oper::Unary(UnOp { oper: ref un_op })) => {
                 let num = get_operand(&mut stack)?;
                 let result = un_op.apply(num);
                 if print_debug {
-                    println!("{num} {un_op} = {result}");
+                    stdout.write_fmt(format_args!("{num} {un_op} = {result}\n"))?;
                 }
                 stack.push(result);
                 Ok(())
@@ -393,7 +437,7 @@ fn process_input(input: &[Item], print_debug: bool) -> Result<Num, &'static str>
             Item::Operator(Oper::Nary(NAryOp { oper: ref nary_op })) => {
                 let result = nary_op.apply(stack.into_iter());
                 if print_debug {
-                    println!("... {nary_op} = {result}");
+                    stdout.write_fmt(format_args!("... {nary_op} = {result}\n"))?;
                 }
                 stack = vec![result];
                 Ok(())
@@ -401,7 +445,9 @@ fn process_input(input: &[Item], print_debug: bool) -> Result<Num, &'static str>
             Item::Operator(Oper::Range(RangeOp { oper: ref range_op })) => {
                 let (lhs, rhs) = get_two_operands(&mut stack)?;
                 if print_debug {
-                    println!("putting range {lhs} {range_op} {rhs} on the stack");
+                    stdout.write_fmt(format_args!(
+                        "putting range {lhs} {range_op} {rhs} on the stack\n"
+                    ))?;
                 }
                 let result = range_op.apply(lhs, rhs);
                 result.into_iter().for_each(|i| stack.push(i));
@@ -410,35 +456,47 @@ fn process_input(input: &[Item], print_debug: bool) -> Result<Num, &'static str>
             Item::Operand(ref num) => {
                 stack.push(*num);
                 if print_debug {
-                    println!("putting {num} on the stack; new stack {:?}", stack);
+                    stdout.write_fmt(format_args!(
+                        "putting {num} on the stack; new stack {:?}\n",
+                        stack
+                    ))?;
                 }
                 Ok(())
             }
         }?;
     }
-    stack.pop().ok_or("stack empty at end of input")
+    stack
+        .pop()
+        .ok_or_else(|| RpnError::Stack("stack empty at end of input".to_owned()))
 }
 
-fn process_arguments(args: Vec<String>, print_debug: bool) -> Result<Num, String> {
+fn process_arguments(
+    args: Vec<String>,
+    print_debug: bool,
+    stdout: &mut impl std::io::Write,
+) -> Result<Num> {
     let (numbers, errors): (Vec<_>, Vec<_>) = args
         .into_iter()
         .map(|s| s.parse::<Item>())
         .partition(Result::is_ok);
     if errors.is_empty() {
         let good_ones: Vec<_> = numbers.into_iter().map(|i| i.ok().unwrap()).collect();
-        process_input(&good_ones, print_debug).map_err(String::from)
+        process_input(&good_ones, print_debug, stdout)
     } else {
         let joined = errors
             .into_iter()
-            .map(|e| e.err().unwrap())
+            .map(|e| e.err().unwrap().msg())
             .collect::<Vec<String>>()
-            .join(";");
-        Err(joined)
+            .join(";\n\t- ");
+        Err(RpnError::Syntax(format!("\n\t- {joined}")))
     }
 }
 
-fn split_all_args_on_whitespace() -> Vec<String> {
-    std::env::args()
+fn split_all_args_on_whitespace<I>(iterable: I) -> Vec<String>
+where
+    I: IntoIterator<Item = String>,
+{
+    iterable
         .into_iter()
         .skip(1)
         .flat_map(move |s| {
@@ -449,32 +507,48 @@ fn split_all_args_on_whitespace() -> Vec<String> {
         .collect()
 }
 
-fn print_version() {
+fn print_version(mut stdout: impl std::io::Write) -> Result<()> {
     let version = env!("CARGO_PKG_VERSION");
     let name = env!("CARGO_PKG_NAME");
     let authors = env!("CARGO_PKG_AUTHORS");
     let repository = env!("CARGO_PKG_REPOSITORY");
-    println!(
+    stdout.write_fmt(format_args!(
         r#"{name} {version}.
 Copyright (C) 2022 {authors}.
 License: BSD 2-Clause "Simplified" License. <https://github.com/basbossink/rpn/raw/main/LICENSE>.
 Home: <{repository}>.
 "#
-    );
+    ))?;
+    stdout.flush()?;
+    Ok(())
 }
 
-fn main() -> Result<(), String> {
-    let splitted = split_all_args_on_whitespace();
+fn main() {
+    let args = std::env::args();
+    let mut stdout = std::io::stdout().lock();
+    let result = rpn(args, &mut stdout);
+    if let Err(e) = result {
+        eprintln!("{e}");
+        std::process::exit(-1);
+    }
+}
+
+fn rpn<I>(args: I, stdout: &mut impl std::io::Write) -> Result<()>
+where
+    I: IntoIterator<Item = String>,
+{
+    let splitted = split_all_args_on_whitespace(args);
     if splitted.iter().any(|s| s == "-v" || s == "--version") {
-        print_version();
+        print_version(stdout)?;
         return Ok(());
     }
     let (debug, rest): (Vec<_>, Vec<_>) = splitted
         .into_iter()
         .partition(|st| *st == "-d" || *st == "--debug");
     let print_debug = !debug.is_empty();
-    let num = process_arguments(rest, print_debug)?;
-    println!("{num}");
+    let num = process_arguments(rest, print_debug, stdout)?;
+    stdout.write_fmt(format_args!("{num}\n"))?;
+    stdout.flush()?;
     Ok(())
 }
 
@@ -483,7 +557,7 @@ mod tests {
     use super::*;
 
     fn act_assert(input: &[Item], expected: Num) {
-        let result = process_input(&input, false).unwrap();
+        let result = process_input(&input, false, Vec::new()).unwrap();
         assert_eq!(expected, result)
     }
 
@@ -693,13 +767,13 @@ mod tests {
     fn should_round_to_significant_digit() {
         let input = [
             Item::Operand(Num::Float(1.234, 4)),
-            Item::Operand(Num::Float(1.2341, 5)),
+            Item::Operand(Num::Float(10.2341, 6)),
             Item::Operator(Oper::Bin(BinOp {
                 oper: Box::new(Add),
             })),
         ];
-        let result = format!("{}", process_input(&input, false).unwrap());
-        assert_eq!("2.468e0", result)
+        let result = format!("{}", process_input(&input, false, Vec::new()).unwrap());
+        assert_eq!("1.147e1", result)
     }
 
     mod process_arguments {
@@ -707,7 +781,8 @@ mod tests {
 
         fn test_process_arguments(args: Vec<&str>, expected: Num) {
             let input = args.into_iter().map(String::from).collect();
-            let actual = process_arguments(input, false).unwrap();
+            let mut buf = Vec::new();
+            let actual = process_arguments(input, false, &mut buf).unwrap();
             assert_eq!(expected, actual);
         }
 
@@ -748,6 +823,21 @@ mod tests {
         fn should_support_combinations() {
             test_process_arguments(vec!["6", "3", "b"], Num::Integer(20));
         }
+
+        #[test]
+        fn should_support_power() {
+            test_process_arguments(vec!["6", "3", "xx"], Num::Integer(216));
+        }
+
+        #[test]
+        fn should_support_power_float() {
+            test_process_arguments(vec!["9", "0.5", "xx"], Num::Float(3.0, 2));
+        }
+
+        #[test]
+        fn should_support_pi() {
+            test_process_arguments(vec!["pi", "pi", "/"], Num::Float(1.0, 37));
+        }
     }
 
     mod fact_should_be_correct_for {
@@ -767,5 +857,111 @@ mod tests {
         fact_test_case!(three, 3, 6);
         fact_test_case!(five, 5, 120);
         fact_test_case!(ten, 10, 3628800);
+    }
+
+    mod rpn {
+        use super::*;
+
+        fn run_case(args: &[&'static str]) -> (Result<()>, String) {
+            let mut buf = Vec::new();
+            let mut args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+            args.insert(0, "rpn".to_owned());
+            let actual = rpn(args, &mut buf);
+            let written = String::from_utf8(buf).unwrap();
+            (actual, written)
+        }
+
+        #[test]
+        fn should_accept_long_version_flag() {
+            let (res, written) = run_case(&["--version"]);
+            assert!(
+                written.contains("rpn"),
+                "expected version string to contain rpn but got: {written}"
+            );
+            assert!(res.is_ok());
+        }
+
+        #[test]
+        fn should_accept_short_version_flag() {
+            let (res, written) = run_case(&["-v"]);
+            assert!(
+                written.contains("rpn"),
+                "expected version string to contain rpn but got: {written}"
+            );
+            assert!(res.is_ok());
+        }
+
+        #[test]
+        fn should_accept_short_debug_flag() {
+            let (res, written) = run_case(&["-d", "2 3 +"]);
+            assert!(
+                written.contains("2 + 3 = 5"),
+                "expected debug output to contain 2 + 3 = 5 but got: {written}"
+            );
+            assert!(res.is_ok());
+        }
+
+        #[test]
+        fn should_accept_long_debug_flag() {
+            let (res, written) = run_case(&["--debug", "2 3 +"]);
+            assert!(
+                written.contains("2 + 3 = 5"),
+                "expected debug output to contain 2 + 3 = 5 but got: {written}"
+            );
+            assert!(res.is_ok());
+        }
+
+        #[test]
+        fn should_report_syntax_error() {
+            let (res, _) = run_case(&["2a 3 +"]);
+            let msg = res
+                .err()
+                .expect("syntax error should be decteted")
+                .to_string();
+            assert!(
+                msg.contains("2a"),
+                "expected parse error to contain 2a but got: [{msg}]"
+            );
+        }
+
+        #[test]
+        fn should_report_stack_error() {
+            let (res, _) = run_case(&["2 +"]);
+            let msg = res
+                .err()
+                .expect("stack error should be detected")
+                .to_string();
+            assert!(
+                msg.contains("stack"),
+                "expected stack error to contain stack error but got: [{msg}]"
+            );
+        }
+
+        #[test]
+        fn should_report_stack_error_with_no_args() {
+            let (res, _) = run_case(&[]);
+            let msg = res
+                .err()
+                .expect("stack error should be detected")
+                .to_string();
+            assert!(
+                msg.contains("stack"),
+                "expected stack error to contain stack error but got: [{msg}]"
+            );
+        }
+
+        #[test]
+        fn should_allow_string_containing_whitespace() {
+            let (res, written) = run_case(&["2 2", " 3 .x"]);
+            assert!(res.is_ok());
+            assert_eq!(written, "12\n");
+        }
+
+        #[test]
+        fn should_process_arguments() {
+            let (res, written) = run_case(&["2.37", "2", "xx"]);
+            assert!(res.is_ok());
+            assert_eq!(written, "5.62\n");
+        }
     }
 }
