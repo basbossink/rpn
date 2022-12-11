@@ -273,14 +273,8 @@ impl UnaryOperator for Factorial {
     }
 }
 
-const fn fact(n: i64) -> i64 {
-    let mut result = 1;
-    let mut counter = 1;
-    while counter <= n {
-        result *= counter;
-        counter += 1;
-    }
-    result
+fn fact(n: i64) -> i64 {
+    std::iter::Iterator::product(1..=n)
 }
 
 struct Mult;
