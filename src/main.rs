@@ -5,10 +5,26 @@ const DEFAULT_PRECISION: usize = 6;
 const PI: Num = Num::Float(std::f64::consts::PI, 37);
 const PI_TOKEN: &str = "pi";
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, Debug)]
 enum Num {
     Integer(i64),
     Float(f64, usize),
+}
+
+impl PartialEq for Num {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Integer(lhs), Self::Integer(rhs)) => lhs == rhs,
+            (Self::Integer(_), Self::Float(_, _)) => false,
+            (Self::Float(_, _), Self::Integer(_)) => false,
+            (Self::Float(ref lhs, ref lhs_prec), Self::Float(ref rhs, ref rhs_prec)) => {
+                let min_prec = 0.max(lhs_prec.min(rhs_prec) - 1) as i32;
+                let bound = 0.5_f64 * 10.0_f64.powi(-1 * min_prec);
+                let abs_diff = (lhs - rhs).abs();
+                (lhs == rhs && lhs_prec == rhs_prec) || abs_diff < bound
+            }
+        }
+    }
 }
 
 impl Display for Num {
@@ -340,7 +356,7 @@ impl UnaryOperator for Sqrt {
     fn apply(&self, num: Num) -> Num {
         match num {
             Num::Integer(i) => Num::Float((i as f64).sqrt(), DEFAULT_PRECISION),
-            Num::Float(f, prec) => Num::Float(f * f, prec),
+            Num::Float(f, prec) => Num::Float(f.sqrt(), prec),
         }
     }
 }
@@ -555,6 +571,34 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    mod num {
+        use super::*;
+
+        #[test]
+        fn equals_should_take_precision_into_account() {
+            let lhs = Num::Float(1.1, 2);
+            let rhs = Num::Float(1.0, 2);
+            assert_ne!(lhs, rhs);
+        }
+
+        #[test]
+        fn equals_should_take_precision_into_account_upto_precision() {
+            let lhs = Num::Float(1.0, 2);
+            let rhs = Num::Float(1.01, 2);
+            assert_eq!(lhs, rhs);
+
+            let lhs = Num::Float(1.0, 1);
+            let rhs = Num::Float(1.06, 1);
+            assert_eq!(lhs, rhs);
+        }
+
+        #[test]
+        fn equals_should_take_precision_into_account_upto_precision_round_up() {
+            let lhs = Num::Float(1.0, 2);
+            let rhs = Num::Float(1.06, 2);
+            assert_ne!(lhs, rhs);
+        }
+    }
 
     fn act_assert(input: &[Item], expected: Num) {
         let result = process_input(&input, false, Vec::new()).unwrap();
@@ -787,6 +831,26 @@ mod tests {
         }
 
         #[test]
+        fn should_support_addition() {
+            test_process_arguments(vec!["1", "2", "+"], Num::Integer(3));
+        }
+
+        #[test]
+        fn should_support_subtraction() {
+            test_process_arguments(vec!["1", "2", "-"], Num::Integer(-1));
+        }
+
+        #[test]
+        fn should_support_multiplication() {
+            test_process_arguments(vec!["4", "2", "x"], Num::Integer(8));
+        }
+
+        #[test]
+        fn should_support_division() {
+            test_process_arguments(vec!["4", "2", "/"], Num::Integer(2));
+        }
+
+        #[test]
         fn should_apply_nary_plus() {
             test_process_arguments(vec!["1", "2", "3", ".+", "1", "+"], Num::Integer(7));
         }
@@ -797,11 +861,23 @@ mod tests {
         }
 
         #[test]
-        fn should_support_square_and_sqrt() {
-            test_process_arguments(
-                vec!["3", "s", "4", "s", "+", "r"],
-                Num::Float(5.0, DEFAULT_PRECISION),
-            );
+        fn should_support_square_int() {
+            test_process_arguments(vec!["3", "s"], Num::Integer(9));
+        }
+
+        #[test]
+        fn should_support_square_float() {
+            test_process_arguments(vec!["1.50", "s"], Num::Float(2.25, 3));
+        }
+
+        #[test]
+        fn should_support_sqrt_int() {
+            test_process_arguments(vec!["9", "r"], Num::Float(3.0, DEFAULT_PRECISION));
+        }
+
+        #[test]
+        fn should_support_sqrt_float() {
+            test_process_arguments(vec!["2.0", "r"], Num::Float(1.41, 2));
         }
 
         #[test]
@@ -830,8 +906,18 @@ mod tests {
         }
 
         #[test]
-        fn should_support_power_float() {
+        fn should_support_power_float_exponent() {
             test_process_arguments(vec!["9", "0.5", "xx"], Num::Float(3.0, 2));
+        }
+
+        #[test]
+        fn should_support_power_float_base_float_exponent() {
+            test_process_arguments(vec!["9.0", "0.5", "xx"], Num::Float(3.0, 2));
+        }
+
+        #[test]
+        fn should_support_power_float_base_integer_exponent() {
+            test_process_arguments(vec!["3.0", "2", "xx"], Num::Float(9.0, 2));
         }
 
         #[test]
