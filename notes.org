@@ -1,13 +1,15 @@
 #+title: Notes
 #+startup: latexpreview
+#+todo: TODO(t) | DONE(d)
 
 * Possible improvements
 
 ** TODO Introduce arithmetic errors
 ** TODO Improve test coverage
-** TODO Improve handling for debug flag
+** DONE Improve handling for debug flag
 ** TODO Layout errors on report level only
-** TODO Replace fact implementation with [[https://doc.rust-lang.org/std/iter/trait.Product.html][Product]]
+** DONE CANCELED DONE TODO Replace fact implementation with [[https://doc.rust-lang.org/std/iter/trait.Product.html][Product]]
+
 ** TODO Add some basic functions: [0/5]
 - [ ] ~abs~
 - [ ] ~log_10~

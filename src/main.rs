@@ -418,59 +418,70 @@ fn get_operand(stack: &mut Vec<Num>) -> Result<Num> {
         .ok_or_else(|| RpnError::Stack("expecting one more operand on the stack".to_owned()))
 }
 
-fn process_input(
-    input: &[Item],
-    print_debug: bool,
-    mut stdout: impl std::io::Write,
-) -> Result<Num> {
+struct DebugWriter<'a> {
+    writer: Option<&'a mut dyn std::io::Write>,
+}
+
+impl<'a> DebugWriter<'a> {
+    fn off() -> Self {
+        Self { writer: None }
+    }
+
+    fn new(writer: &'a mut dyn std::io::Write) -> Self {
+        Self {
+            writer: Some(writer),
+        }
+    }
+
+    fn write<C, F>(&mut self, f: F) -> std::io::Result<()>
+    where
+        C: Display,
+        F: FnOnce() -> C,
+    {
+        if let Some(ref mut w) = self.writer {
+            write!(w, "{}", f())
+        } else {
+            Ok(())
+        }
+    }
+}
+
+fn process_input(input: &[Item], debug_writer: &mut DebugWriter) -> Result<Num> {
     let mut stack: Vec<Num> = Vec::new();
     for item in input {
         match *item {
             Item::Operator(Oper::Bin(BinOp { oper: ref bin_op })) => {
                 let (lhs, rhs) = get_two_operands(&mut stack)?;
                 let result = bin_op.apply(lhs, rhs);
-                if print_debug {
-                    stdout.write_fmt(format_args!("{lhs} {bin_op} {rhs} = {result}\n"))?;
-                }
+                debug_writer.write(|| format!("{lhs} {bin_op} {rhs} = {result}\n"))?;
                 stack.push(result);
                 Ok::<(), RpnError>(())
             }
             Item::Operator(Oper::Unary(UnOp { oper: ref un_op })) => {
                 let num = get_operand(&mut stack)?;
                 let result = un_op.apply(num);
-                if print_debug {
-                    stdout.write_fmt(format_args!("{num} {un_op} = {result}\n"))?;
-                }
+                debug_writer.write(|| format!("{num} {un_op} = {result}\n"))?;
                 stack.push(result);
                 Ok(())
             }
             Item::Operator(Oper::Nary(NAryOp { oper: ref nary_op })) => {
                 let result = nary_op.apply(stack.into_iter());
-                if print_debug {
-                    stdout.write_fmt(format_args!("... {nary_op} = {result}\n"))?;
-                }
+                debug_writer.write(|| format!("... {nary_op} = {result}\n"))?;
                 stack = vec![result];
                 Ok(())
             }
             Item::Operator(Oper::Range(RangeOp { oper: ref range_op })) => {
                 let (lhs, rhs) = get_two_operands(&mut stack)?;
-                if print_debug {
-                    stdout.write_fmt(format_args!(
-                        "putting range {lhs} {range_op} {rhs} on the stack\n"
-                    ))?;
-                }
+                debug_writer
+                    .write(|| format!("putting range {lhs} {range_op} {rhs} on the stack\n"))?;
                 let result = range_op.apply(lhs, rhs);
                 result.into_iter().for_each(|i| stack.push(i));
                 Ok(())
             }
             Item::Operand(ref num) => {
                 stack.push(*num);
-                if print_debug {
-                    stdout.write_fmt(format_args!(
-                        "putting {num} on the stack; new stack {:?}\n",
-                        stack
-                    ))?;
-                }
+                debug_writer
+                    .write(|| format!("putting {num} on the stack; new stack {:?}\n", stack))?;
                 Ok(())
             }
         }?;
@@ -480,18 +491,14 @@ fn process_input(
         .ok_or_else(|| RpnError::Stack("stack empty at end of input".to_owned()))
 }
 
-fn process_arguments(
-    args: Vec<String>,
-    print_debug: bool,
-    stdout: &mut impl std::io::Write,
-) -> Result<Num> {
+fn process_arguments(args: Vec<String>, debug_writer: &mut DebugWriter) -> Result<Num> {
     let (numbers, errors): (Vec<_>, Vec<_>) = args
         .into_iter()
         .map(|s| s.parse::<Item>())
         .partition(Result::is_ok);
     if errors.is_empty() {
         let good_ones: Vec<_> = numbers.into_iter().map(|i| i.ok().unwrap()).collect();
-        process_input(&good_ones, print_debug, stdout)
+        process_input(&good_ones, debug_writer)
     } else {
         let joined = errors
             .into_iter()
@@ -543,7 +550,7 @@ fn main() {
     }
 }
 
-fn rpn<I>(args: I, stdout: &mut impl std::io::Write) -> Result<()>
+fn rpn<'a, I>(args: I, stdout: &'a mut dyn std::io::Write) -> Result<()>
 where
     I: IntoIterator<Item = String>,
 {
@@ -555,8 +562,12 @@ where
     let (debug, rest): (Vec<_>, Vec<_>) = splitted
         .into_iter()
         .partition(|st| *st == "-d" || *st == "--debug");
-    let print_debug = !debug.is_empty();
-    let num = process_arguments(rest, print_debug, stdout)?;
+    let mut sink = if debug.is_empty() {
+        DebugWriter::off()
+    } else {
+        DebugWriter::new(stdout)
+    };
+    let num = process_arguments(rest, &mut sink)?;
     stdout.write_fmt(format_args!("{num}\n"))?;
     stdout.flush()?;
     Ok(())
@@ -595,7 +606,8 @@ mod tests {
     }
 
     fn act_assert(input: &[Item], expected: Num) {
-        let result = process_input(&input, false, Vec::new()).unwrap();
+        let mut writer = DebugWriter::off();
+        let result = process_input(&input, &mut writer).unwrap();
         assert_eq!(expected, result)
     }
 
@@ -810,7 +822,8 @@ mod tests {
                 oper: Box::new(Add),
             })),
         ];
-        let result = format!("{}", process_input(&input, false, Vec::new()).unwrap());
+        let mut writer = DebugWriter::off();
+        let result = format!("{}", process_input(&input, &mut writer).unwrap());
         assert_eq!("1.147e1", result)
     }
 
@@ -819,8 +832,8 @@ mod tests {
 
         fn test_process_arguments(args: Vec<&str>, expected: Num) {
             let input = args.into_iter().map(String::from).collect();
-            let mut buf = Vec::new();
-            let actual = process_arguments(input, false, &mut buf).unwrap();
+            let mut writer = DebugWriter::off();
+            let actual = process_arguments(input, &mut writer).unwrap();
             assert_eq!(expected, actual);
         }
 
